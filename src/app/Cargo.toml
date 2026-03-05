@@ -5,4 +5,5 @@ edition = "2021"
 
 [dependencies]
 eframe = "0.31"
+rfd = "0.15"
 soph-core = { path = "../soph-core" }
