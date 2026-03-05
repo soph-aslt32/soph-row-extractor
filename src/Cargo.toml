@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "app",
+    "soph-core",
+]
+resolver = "2"
