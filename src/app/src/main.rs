@@ -77,6 +77,7 @@ fn setup_style(ctx: &egui::Context) {
 #[derive(Default)]
 struct MyApp {
     file_path: Option<PathBuf>,
+    file_path2: Option<PathBuf>,
     search_string: String,
     search_tl: String,
     search_br: String,
@@ -115,17 +116,18 @@ impl eframe::App for MyApp {
                     .inner_margin(egui::Margin::same(14))
                     .show(ui, |ui| {
                         ui.label(
-                            egui::RichText::new("INPUT FILE")
+                            egui::RichText::new("INPUT FILES")
                                 .size(10.0)
                                 .strong()
                                 .color(egui::Color32::from_rgb(130, 150, 200)),
                         );
                         ui.add_space(6.0);
+                        // ファイル 1
                         ui.horizontal(|ui| {
                             if ui
                                 .add(
                                     egui::Button::new(
-                                        egui::RichText::new("\u{1f4c2}  ファイルを選択")
+                                        egui::RichText::new("\u{1f4c2}  ファイル 1")
                                             .color(egui::Color32::WHITE),
                                     )
                                     .fill(egui::Color32::from_rgb(50, 60, 95)),
@@ -148,7 +150,41 @@ impl eframe::App for MyApp {
                                     egui::Color32::from_rgb(166, 227, 161),
                                 ),
                                 None => (
-                                    "ファイルが選択されていません".to_string(),
+                                    "未選択".to_string(),
+                                    egui::Color32::from_gray(120),
+                                ),
+                            };
+                            ui.label(egui::RichText::new(label).color(color));
+                        });
+                        // ファイル 2
+                        ui.horizontal(|ui| {
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        egui::RichText::new("\u{1f4c2}  ファイル 2")
+                                            .color(egui::Color32::WHITE),
+                                    )
+                                    .fill(egui::Color32::from_rgb(50, 60, 95)),
+                                )
+                                .clicked()
+                            {
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .add_filter("Excel", &["xlsx"])
+                                    .pick_file()
+                                {
+                                    self.file_path2 = Some(path);
+                                    self.status.clear();
+                                }
+                            }
+                            let (label, color) = match &self.file_path2 {
+                                Some(p) => (
+                                    p.file_name()
+                                        .map(|n| n.to_string_lossy().into_owned())
+                                        .unwrap_or_default(),
+                                    egui::Color32::from_rgb(166, 227, 161),
+                                ),
+                                None => (
+                                    "未選択".to_string(),
                                     egui::Color32::from_gray(120),
                                 ),
                             };
@@ -236,6 +272,7 @@ impl eframe::App for MyApp {
 
                 // ── 実行ボタン ──
                 let can_run = self.file_path.is_some()
+                    && self.file_path2.is_some()
                     && !self.search_string.is_empty()
                     && !self.search_tl.is_empty()
                     && !self.search_br.is_empty()
@@ -330,43 +367,45 @@ impl MyApp {
             return;
         }
 
-        // 保存先ダイアログ
-        let input_path = self.file_path.as_ref().unwrap();
-        let default_name = input_path
-            .file_stem()
-            .map(|s| format!("{}_output.xlsx", s.to_string_lossy()))
-            .unwrap_or_else(|| "output.xlsx".to_string());
-
-        let output_path = match rfd::FileDialog::new()
-            .add_filter("Excel", &["xlsx"])
-            .set_file_name(&default_name)
-            .save_file()
-        {
-            Some(p) => p,
-            None => return, // キャンセル
+        // 出力パスを自動生成: 元ファイルと同ディレクトリ、ファイル名末尾に _(検索文字列)
+        let make_output_path = |input: &std::path::Path| -> PathBuf {
+            let stem = input
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let name = format!("{}_{}.xlsx", stem, self.search_string);
+            input.parent().unwrap_or(std::path::Path::new(".")).join(name)
         };
 
-        let config = soph_core::ExtractionConfig {
-            input_path: input_path.to_string_lossy().into_owned(),
-            output_path: output_path.to_string_lossy().into_owned(),
-            search_string: self.search_string.clone(),
-            search_tl: tl,
-            search_br: br,
-            prot_top,
-            prot_bottom,
-        };
+        let input1 = self.file_path.as_deref().unwrap();
+        let input2 = self.file_path2.as_deref().unwrap();
+        let output1 = make_output_path(input1);
+        let output2 = make_output_path(input2);
 
-        match soph_core::extract_and_combine(&config) {
-            Ok(count) => {
-                self.status = format!(
-                    "✓ 完了: {} 行が抽出されました。\n保存先: {}",
+        let mut messages = Vec::new();
+        for (input, output) in [(input1, &output1), (input2, &output2)] {
+            let config = soph_core::ExtractionConfig {
+                input_path: input.to_string_lossy().into_owned(),
+                output_path: output.to_string_lossy().into_owned(),
+                search_string: self.search_string.clone(),
+                search_tl: tl,
+                search_br: br,
+                prot_top,
+                prot_bottom,
+            };
+            match soph_core::extract_and_combine(&config) {
+                Ok(count) => messages.push(format!(
+                    "✓ {} → {} 行抽出",
+                    input.file_name().unwrap_or_default().to_string_lossy(),
                     count,
-                    output_path.display()
-                );
-            }
-            Err(e) => {
-                self.status = format!("エラー: {e}");
+                )),
+                Err(e) => messages.push(format!(
+                    "エラー [{}]: {e}",
+                    input.file_name().unwrap_or_default().to_string_lossy(),
+                )),
             }
         }
+        self.status = messages.join("\n");
     }
 }
