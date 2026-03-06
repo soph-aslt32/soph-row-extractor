@@ -98,6 +98,33 @@ pub fn extract_and_combine(config: &ExtractionConfig) -> Result<usize, String> {
     Ok(matched_count)
 }
 
+/// 指定範囲内の全セルの値を重複なしで収集する（空文字列は除外）。
+/// 成功時は昇順ソート済みの Vec<String> を返す。
+pub fn collect_unique_strings(
+    input_path: &str,
+    tl: (u32, u32),
+    br: (u32, u32),
+) -> Result<Vec<String>, String> {
+    let book = umya_spreadsheet::reader::xlsx::read(Path::new(input_path))
+        .map_err(|e| format!("ファイル読み込みエラー: {e}"))?;
+    let sheet = book
+        .get_sheet(&0)
+        .ok_or("ワークシートが見つかりません")?;
+
+    let mut set = BTreeSet::new();
+    for row in tl.1..=br.1 {
+        for col in tl.0..=br.0 {
+            if let Some(cell) = sheet.get_cell((col, row)) {
+                let val = cell.get_value().to_string();
+                if !val.is_empty() {
+                    set.insert(val);
+                }
+            }
+        }
+    }
+    Ok(set.into_iter().collect())
+}
+
 // ──────────────────────────────────────────────
 // テスト
 // ──────────────────────────────────────────────
